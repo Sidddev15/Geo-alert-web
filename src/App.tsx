@@ -4,40 +4,81 @@ import { getCurrentPositionAsync } from './lib/geo';
 import { postEvent } from './lib/api';
 import type { EventPayload, EventType } from './lib/types';
 
+/* -------------------- TYPES -------------------- */
+
 type Status =
   | { kind: 'idle' }
   | { kind: 'working'; message: string }
   | { kind: 'success'; message: string }
   | { kind: 'error'; message: string };
 
+type LastSuccess = {
+  ts: number;
+  eventType: EventType;
+  lat: number;
+  lng: number;
+};
+
+/* -------------------- LOCAL STORAGE -------------------- */
+
+const LS_KEY = 'geo-alert:last-success';
+
+function loadLastSuccess(): LastSuccess | null {
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    return raw ? (JSON.parse(raw) as LastSuccess) : null;
+  } catch {
+    return null;
+  }
+}
+
+function saveLastSuccess(v: LastSuccess) {
+  try {
+    localStorage.setItem(LS_KEY, JSON.stringify(v));
+  } catch {}
+}
+
+/* -------------------- COMPONENT -------------------- */
+
 export default function App() {
-  const [mode, setMode] = useState<EventType>('manual'); // manual/night
+  const [mode, setMode] = useState<EventType>('manual');
   const [status, setStatus] = useState<Status>({ kind: 'idle' });
+
   const [debug, setDebug] = useState<{
     payload?: EventPayload;
     response?: unknown;
     httpStatus?: number;
     rawText?: string;
   }>({});
-  const [notes, setNotes] = useState<string>(''); // optional for future use (not sent now)
+
+  const [notes, setNotes] = useState<string>('');
+  const [isSending, setIsSending] = useState(false);
+  const [confirmEmergency, setConfirmEmergency] = useState(false);
+
+  const [lastSuccess, setLastSuccess] = useState<LastSuccess | null>(() =>
+    loadLastSuccess()
+  );
 
   const backendUrl = useMemo(
     () => import.meta.env.VITE_BACKEND_URL as string | undefined,
     []
   );
+
   const hasEnv = Boolean(
     import.meta.env.VITE_BACKEND_URL && import.meta.env.VITE_API_KEY
   );
 
+  /* -------------------- SEND LOGIC -------------------- */
+
   async function send(eventType: EventType) {
+    if (isSending) return;
+
+    setIsSending(true);
     setStatus({ kind: 'working', message: 'Getting GPS location…' });
     setDebug({});
 
     try {
-      if (!hasEnv)
-        throw new Error(
-          'Missing env variables. Set VITE_BACKEND_URL and VITE_API_KEY.'
-        );
+      if (!hasEnv) throw new Error('Missing env variables.');
 
       const { lat, lng, accuracyM } = await getCurrentPositionAsync({
         enableHighAccuracy: true,
@@ -45,18 +86,17 @@ export default function App() {
         maximumAge: 0,
       });
 
-      // lock types: numbers only
       if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
-        throw new Error('Coordinates are not finite numbers (unexpected).');
+        throw new Error('Coordinates are not finite numbers.');
       }
 
       const payload: EventPayload = { lat, lng, eventType };
+      setDebug({ payload });
 
       setStatus({
         kind: 'working',
         message: `Sending to backend… (±${Math.round(accuracyM)}m)`,
       });
-      setDebug({ payload });
 
       const { status: httpStatus, data, rawText } = await postEvent(payload);
       setDebug((d) => ({ ...d, response: data, httpStatus, rawText }));
@@ -65,6 +105,16 @@ export default function App() {
         const emailed = (data as any)?.emailed;
         const reason = (data as any)?.reason;
 
+        const success: LastSuccess = {
+          ts: Date.now(),
+          eventType,
+          lat,
+          lng,
+        };
+
+        saveLastSuccess(success);
+        setLastSuccess(success);
+
         setStatus({
           kind: 'success',
           message:
@@ -72,18 +122,26 @@ export default function App() {
               ? `Logged (email skipped): ${reason ?? 'rule'}`
               : 'Sent successfully ✅',
         });
+
+        setConfirmEmergency(false);
         return;
       }
 
-      // show backend error (401/400 etc)
       setStatus({
         kind: 'error',
-        message: `Backend error (${httpStatus}). See debug panel.`,
+        message: `Backend error (${httpStatus}).`,
       });
     } catch (err: any) {
-      setStatus({ kind: 'error', message: err?.message ?? 'Unknown error' });
+      setStatus({
+        kind: 'error',
+        message: err?.message ?? 'Unknown error',
+      });
+    } finally {
+      setIsSending(false);
     }
   }
+
+  /* -------------------- RENDER -------------------- */
 
   return (
     <div className="wrap">
@@ -99,6 +157,7 @@ export default function App() {
 
       <section className="card">
         <label className="label">Mode</label>
+
         <div className="row">
           <button
             className={mode === 'manual' ? 'btn btnOn' : 'btn'}
@@ -127,23 +186,60 @@ export default function App() {
         <div className="row" style={{ marginTop: 12 }}>
           <button
             className="btnPrimary"
+            disabled={isSending}
             onClick={() => send(mode)}
             type="button"
           >
-            Send Location
+            {isSending ? 'Sending…' : 'Send Location'}
           </button>
-          <button
-            className="btnDanger"
-            onClick={() => send('emergency')}
-            type="button"
-          >
-            🚨 Emergency
-          </button>
+
+          {confirmEmergency ? (
+            <button
+              className="btnDanger"
+              disabled={isSending}
+              onClick={() => send('emergency')}
+              type="button"
+            >
+              CONFIRM 🚨 SEND EMERGENCY
+            </button>
+          ) : (
+            <button
+              className="btnDanger"
+              disabled={isSending}
+              onClick={() => setConfirmEmergency(true)}
+              type="button"
+            >
+              🚨 Emergency
+            </button>
+          )}
         </div>
 
+        {/* -------- STATUS -------- */}
         <div className={`status ${status.kind}`}>
           {status.kind === 'idle' ? 'Ready.' : status.message}
         </div>
+
+        {/* -------- RETRY (ONLY ON ERROR) -------- */}
+        {status.kind === 'error' && (
+          <button
+            className="btn"
+            style={{ marginTop: 8 }}
+            disabled={isSending}
+            onClick={() => send(mode)}
+            type="button"
+          >
+            Retry
+          </button>
+        )}
+
+        {/* -------- LAST SUCCESS (PERSISTENT) -------- */}
+        {lastSuccess && (
+          <div className="status" style={{ marginTop: 8 }}>
+            Last sent: {new Date(lastSuccess.ts).toLocaleString()} (
+            {lastSuccess.eventType})<br />
+            Lat: {lastSuccess.lat.toFixed(5)}, Lng: {lastSuccess.lng.toFixed(5)}
+          </div>
+        )}
 
         <details className="debug">
           <summary>Debug</summary>
