@@ -1,4 +1,5 @@
 import type { EventPayload } from './types';
+import { getEventToken } from './auth';
 
 type ApiOk = { ok: true; emailed?: boolean; accepted?: boolean; reason?: string };
 type ApiErr = { ok: false; error?: unknown };
@@ -15,13 +16,13 @@ function mustEnv(name: string, value: string | undefined): string {
 
 export async function postEvent(payload: EventPayload): Promise<{ status: number; data: ApiResponse; rawText: string }> {
     const url = mustEnv('VITE_BACKEND_URL', BACKEND_URL);
-    const key = mustEnv('VITE_API_KEY', API_KEY);
+    const token = await getEventToken();
 
     const res = await fetch(url, {
         method: 'POST',
         headers: {
             'Content-Type': 'application/json',
-            'X-API-Key': key,
+            'Authorization': `Bearer ${token}`,
         },
         body: JSON.stringify(payload),
     });
