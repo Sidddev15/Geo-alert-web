@@ -7,7 +7,6 @@ type ApiErr = { ok: false; error?: unknown };
 export type ApiResponse = ApiOk | ApiErr;
 
 const BACKEND_URL = import.meta.env.VITE_BACKEND_URL as string | undefined;
-const API_KEY = import.meta.env.VITE_API_KEY as string | undefined;
 
 function mustEnv(name: string, value: string | undefined): string {
     if (!value) throw new Error(`Missing env: ${name}`);
