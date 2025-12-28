@@ -2,9 +2,13 @@ import type { EventPayload } from './types';
 import { getEventToken } from './auth';
 import { mustEnv } from './env';
 
+type ApiOk = { ok: true; emailed?: boolean; accepted?: boolean; reason?: string };
+type ApiErr = { ok: false; error?: unknown };
+export type ApiResponse = ApiOk | ApiErr;
+
 const BACKEND_ORIGIN = mustEnv('VITE_BACKEND_ORIGIN');
 
-export async function postEvent(payload: EventPayload) {
+export async function postEvent(payload: EventPayload): Promise<{ status: number; data: ApiResponse; rawText: string }> {
     const token = await getEventToken();
 
     const res = await fetch(`${BACKEND_ORIGIN}/v1/events`, {
@@ -18,16 +22,12 @@ export async function postEvent(payload: EventPayload) {
 
     const rawText = await res.text();
 
-    let data;
+    let data: ApiResponse;
     try {
-        data = JSON.parse(rawText);
+        data = JSON.parse(rawText) as ApiResponse;
     } catch {
-        data = rawText;
+        data = { ok: false, error: rawText };
     }
 
-    return {
-        status: res.status,
-        data,
-        rawText,
-    };
+    return { status: res.status, data, rawText };
 }
