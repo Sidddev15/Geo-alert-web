@@ -1,14 +1,17 @@
 import type { EventPayload } from './types';
 import { getEventToken } from './auth';
-import { mustEnv } from './env';
+import { getEnv } from './env';
 
-type ApiOk = { ok: true; emailed?: boolean; accepted?: boolean; reason?: string };
-type ApiErr = { ok: false; error?: unknown };
-export type ApiResponse = ApiOk | ApiErr;
+export async function postEvent(payload: EventPayload) {
+    const BACKEND_ORIGIN = getEnv('VITE_BACKEND_ORIGIN');
 
-const BACKEND_ORIGIN = mustEnv('VITE_BACKEND_ORIGIN');
+    if (!BACKEND_ORIGIN) {
+        throw new Error(
+            'VITE_BACKEND_ORIGIN is missing. ' +
+            'This must be set in Netlify AND the site redeployed.'
+        );
+    }
 
-export async function postEvent(payload: EventPayload): Promise<{ status: number; data: ApiResponse; rawText: string }> {
     const token = await getEventToken();
 
     const res = await fetch(`${BACKEND_ORIGIN}/v1/events`, {
@@ -20,14 +23,17 @@ export async function postEvent(payload: EventPayload): Promise<{ status: number
         body: JSON.stringify(payload),
     });
 
-    const rawText = await res.text();
+    const text = await res.text();
 
-    let data: ApiResponse;
+    let data: unknown;
     try {
-        data = JSON.parse(rawText) as ApiResponse;
+        data = JSON.parse(text);
     } catch {
-        data = { ok: false, error: rawText };
+        data = text;
     }
 
-    return { status: res.status, data, rawText };
+    return {
+        status: res.status,
+        data,
+    };
 }

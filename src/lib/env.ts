@@ -1,10 +1,4 @@
-export function mustEnv(name: keyof ImportMetaEnv): string {
+export function getEnv(name: keyof ImportMetaEnv): string | null {
     const v = import.meta.env[name] as string | undefined;
-    if (!v || v.trim() === '') {
-        throw new Error(
-            `Missing required env: ${String(name)}. ` +
-            `This is a Vite build-time env. Netlify must redeploy after setting it.`
-        );
-    }
-    return v;
+    return v && v.trim() !== '' ? v : null;
 }
