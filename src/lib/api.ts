@@ -1,44 +1,10 @@
 import type { EventPayload } from './types';
 import { getEventToken } from './auth';
+import { mustEnv } from './env';
 
-type ApiOk = {
-    ok: true;
-    emailed?: boolean;
-    accepted?: boolean;
-    reason?: string;
-};
+const BACKEND_ORIGIN = mustEnv('VITE_BACKEND_ORIGIN');
 
-type ApiErr = {
-    ok: false;
-    error?: unknown;
-};
-
-export type ApiResponse = ApiOk | ApiErr;
-
-/**
- * Read and validate required env var
- */
-function mustEnv(name: string, value: string | undefined): string {
-    if (!value || value.trim() === '') {
-        throw new Error(`Missing required env variable: ${name}`);
-    }
-    return value;
-}
-
-/**
- * Backend origin, e.g. https://geo-alert.onrender.com
- */
-const BACKEND_ORIGIN = mustEnv(
-    'VITE_BACKEND_ORIGIN',
-    import.meta.env.VITE_BACKEND_ORIGIN
-);
-
-/**
- * POST /v1/events
- */
-export async function postEvent(
-    payload: EventPayload
-): Promise<{ status: number; data: ApiResponse; rawText: string }> {
+export async function postEvent(payload: EventPayload) {
     const token = await getEventToken();
 
     const res = await fetch(`${BACKEND_ORIGIN}/v1/events`, {
@@ -52,11 +18,11 @@ export async function postEvent(
 
     const rawText = await res.text();
 
-    let data: ApiResponse;
+    let data;
     try {
-        data = JSON.parse(rawText) as ApiResponse;
+        data = JSON.parse(rawText);
     } catch {
-        data = { ok: false, error: rawText };
+        data = rawText;
     }
 
     return {
