@@ -1,5 +1,5 @@
 import { useMemo, useState } from 'react';
-import './app.css';
+import './index.css';
 import { getCurrentPositionAsync } from './lib/geo';
 import { postEvent } from './lib/api';
 import type { EventPayload, EventType } from './lib/types';
